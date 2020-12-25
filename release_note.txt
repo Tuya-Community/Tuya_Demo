@@ -1,0 +1,49 @@
+﻿**************************************************************************
+                                                                        
+                       Telink Release Note                              
+                                                                            
+                                                                        
+**************************************************************************
+
+Version: telink_kite_ble_sdk_v3.4.0_20190816
+release date: 2019/08/16
+
+
+- Add BLE 5.0 feature (for both 8251/8253 /8258)
+	- Add BLE Coded PHY (500kbps and 125kbps)
+	- Add BLE 2M PHY
+	- Add Channel Selection Algorithm(CSA #2)
+	- Add Extended Advertisement with different PHYs
+- Added ADC calibration feature for A3 MP chip
+- Merged the lastest driver V2.0.0
+- Added API void blc_ll_initConnection_module(void) for initialize connection(include master and slave) module
+
+
+
+Patch Note:
+./Kite BLE SDK 3.4.0 Patch incule bug fix based on telink_kite_ble_sdk_v3.4.0_20190816, 
+if you want to use Kite BLE SDK3.4.0, please read this patch note firstly and fix SDK file according to note
+
+
+
+**************************************************************************
+
+Version: telink_kite_ble_sdk_v3.3.1_20190513
+Release date: 2019/05/13
+
+- This SDK supports 16M/24M/32M/48M system clock which derived from the external 24M crystal(The SDK does not support RC clock).
+- This SDK supports 8258 A1/A2/A3 chips (but A1 and A2 do not support USB、32M /48M system clocks、32k external crystal). 
+- Add firmware signature(based on flash's UID).
+- This SDK supports external 32k pad (only A3 chip).
+- This SDK supports 8251/8253 /8258 chips.
+- Demo illustration
+	- BLE slave demo：8258 ble remote/8258 module/8258 ble sample
+	- BLE slave controller demo：8258 hci
+	- BLE master demo：8258 master kma dongle(only A3 chip).
+	- BLE feature demo：8258 feature test
+	- Driver demo：8258 driver test
+
+
+
+**************************************************************************
+

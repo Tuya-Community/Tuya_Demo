@@ -1,0 +1,9 @@
+**************************************************************************
+                                                                        
+                       Telink SDK Patch Note                              
+                                                                            
+                                                                        
+**************************************************************************
+
+Patch Note:
+./Kite BLE SDK 3.4.0 Patch incule bug fix based on telink_kite_ble_sdk_v3.4.0_20190816, if you want to use Kite BLE SDK3.4.0, please read this patch note firstly and fix SDK file according to note

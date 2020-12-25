@@ -1,0 +1,18 @@
+**************************************************************************
+                                                                        
+                       Telink SDK Patch List                              
+                                                                            
+                                                                        
+**************************************************************************
+
+1. 0001_20190909_8258 EMI_Test_Patch
+	-Fix EMI Test Demo 
+2. 0002_20191112_8258_Fix_SMP_Risk
+	-Fix SMP risk 
+3. 0003_20191112_8258_Add_WatchDog_initialize
+	-Add WatchDog initialize
+4. 0004_20200402_8258_Fix_Error_Handing_Issues 
+	-Fix "response to VERSION_IND more than once"
+	-Fix "response to data channel PDUs during encryption procedure"
+	-Fix "sends unkunwn ll contorl PDU opcode"
+	-Fix "accepts CONNECT_IND with hopincrement outside 5-16 range"
