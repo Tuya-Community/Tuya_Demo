@@ -1,6 +1,6 @@
 #include "tuya_ble_common.h"
 #include "tuya_ble_log.h"
-
+#include "../tuya_ble_sdk/app/SHT3x/sht3x.h"
 #define DP_TEMP 1
 #define DP_HUMI 2
 //#define TY_DEVICE_PID "3224"
@@ -285,7 +285,7 @@ s32 first_timerout_handler(void)
     	//tuya_log_v("ty_factory_flag:%d,cnt:%d\n",ty_factory_flag,cnt);
     	return -1;
     }
-    
+    return -1;
 }
 
 s32 conn_para_update_timerout_handler(void)
@@ -369,35 +369,36 @@ static s32 tuya_conncet_monitor_callback()
     return -1;
 }
 
+extern int SHT30_temperature;
+extern u8 SHT30_humidity;
 void tuya_SHT30_callback()
 {
 	//your loop code here
 	    uint8_t Data_Buffer[50] ={0};
 	    uint32_t Data_Len = 14;
-		int temperature = 200;
-		int humidity = 99;
-		uint8_t* Data_Buffer_ptr;
-		Data_Buffer_ptr = Data_Buffer;
 		/*
 		 * dp data  buffer:  (Dp_id,Dp_type,Dp_len,Dp_data),(Dp_id,Dp_type,Dp_len,Dp_data),....
 		 */
+		tem_hum_i2c_start_read(&SHT30_temperature,&SHT30_humidity);//Update Temp & Humi
 	    Data_Buffer[0] = DP_TEMP;
 	    Data_Buffer[1] = DT_VALUE;
 	    Data_Buffer[2] = DT_VALUE_LEN;
-	    Data_Buffer[3] = temperature<<24;
-	    Data_Buffer[4] = temperature<<16;
-	    Data_Buffer[5] = temperature<<8;
-	    Data_Buffer[6] = temperature<<0;
+	    Data_Buffer[3] = ((SHT30_temperature>>24)&0xff);
+	    Data_Buffer[4] = ((SHT30_temperature>>16)&0xff);
+	    Data_Buffer[5] = ((SHT30_temperature>>8)&0xff);
+	    Data_Buffer[6] = ((SHT30_temperature>>0)&0xff);
 	    Data_Buffer[7] = DP_HUMI;
 	    Data_Buffer[8] = DT_VALUE;
 	    Data_Buffer[9] = DT_VALUE_LEN;
-	    Data_Buffer[10] = humidity<<24;
-	    Data_Buffer[11] = humidity<<16;
-	    Data_Buffer[12] = humidity<<8;
-	    Data_Buffer[13] = humidity<<0;
+	    Data_Buffer[10] = ((SHT30_humidity>>24)&0xff);
+	    Data_Buffer[11] = ((SHT30_humidity>>16)&0xff);
+	    Data_Buffer[12] = ((SHT30_humidity>>8)&0xff);
+	    Data_Buffer[13] = ((SHT30_humidity>>0)&0xff);
 
-		tuya_ble_dp_data_report(Data_Buffer_ptr,Data_Len);//report temperature and humidity
-		tuya_log_d("temperature=%d C\t humidity=%d% RH\t",temperature/10,humidity);
+		tuya_ble_dp_data_report((u8*)Data_Buffer,Data_Len);//report temperature and humidity
+		//tuya_log_dumpHex("temperature= ",7,(u8*)Data_Buffer,7 );
+		//tuya_log_dumpHex("/n humidity= ",7,(u8*)Data_Buffer+7,7 );
+		tuya_log_d("temperature=%d.%d C\t humidity=%d% RH\t",SHT30_temperature/10,SHT30_temperature%10,SHT30_humidity);
 }
 
 u32 tuya_timer_start(u8 timer_id,u32 time_ms_cnt)
@@ -598,6 +599,7 @@ u32 tuya_timer_delete(u8 timer_id)
 	}
 	else if(timer_id==TIMER_IIC)
 	{
+		bsp_timer_delete(tuya_SHT30_callback);
 		return 0;
 	}
 

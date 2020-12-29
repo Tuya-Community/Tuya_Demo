@@ -4,14 +4,10 @@
 
 # Add inputs and outputs from these tool invocations to the build variables 
 C_SRCS += \
-../tuya_ble_sdk/app/SHT3x/i2c.c \
-../tuya_ble_sdk/app/SHT3x/sht3x.c \
-../tuya_ble_sdk/app/SHT3x/system.c 
+../tuya_ble_sdk/app/SHT3x/sht3x.c 
 
 OBJS += \
-./tuya_ble_sdk/app/SHT3x/i2c.o \
-./tuya_ble_sdk/app/SHT3x/sht3x.o \
-./tuya_ble_sdk/app/SHT3x/system.o 
+./tuya_ble_sdk/app/SHT3x/sht3x.o 
 
 
 # Each subdirectory must supply rules for building sources it contributes

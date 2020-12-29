@@ -17,7 +17,6 @@
 #include "tuya_ota.h"
 
 #include "tuya_ble_common.h"
-
 static tuya_ble_device_param_t device_param = {0};
 
 
@@ -97,11 +96,6 @@ static void tuya_cb_handler(tuya_ble_cb_evt_param_t* event)
     {
     case TUYA_BLE_CB_EVT_CONNECTE_STATUS:
     	status = tuya_ble_connect_status_get();
-        if(status==BONDING_CONN)
-        {
-        	tuya_timer_start(TIMER_IIC,1000);
-        	TUYA_APP_LOG_INFO("IIC Timer has started");
-        }
         TUYA_APP_LOG_INFO("received tuya ble conncet status update event,current connect status = %d",status);
         break;
     case TUYA_BLE_CB_EVT_DP_WRITE:
@@ -111,8 +105,8 @@ static void tuya_cb_handler(tuya_ble_cb_evt_param_t* event)
         TUYA_APP_LOG_HEXDUMP_DEBUG("received dp write data :",dp_data_array,dp_data_len);
         sn = 0;
         tuya_ble_dp_data_report(dp_data_array,dp_data_len);//1
-        custom_evt_1_send_test(dp_data_len);
-        tuya_ble_dp_data_report(dp_data_test,sizeof(dp_data_test));
+        //custom_evt_1_send_test(dp_data_len);
+        //tuya_ble_dp_data_report(dp_data_test,sizeof(dp_data_test));
         //tuya_uart_send_ble_dpdata(dp_data_array,dp_data_len);
         break;
     case TUYA_BLE_CB_EVT_DP_DATA_REPORT_RESPONSE:
@@ -189,7 +183,9 @@ static void tuya_cb_handler(tuya_ble_cb_evt_param_t* event)
     case TUYA_BLE_CB_EVT_DP_QUERY:
         TUYA_APP_LOG_INFO("received TUYA_BLE_CB_EVT_DP_QUERY event");
         uart_to_ble_enable=1;
-        //tuya_ble_dp_data_report(dp_data_array,dp_data_len);
+        tuya_ble_dp_data_report(dp_data_array,dp_data_len);
+        tuya_timer_start(TIMER_IIC,1000);
+        TUYA_APP_LOG_INFO("IIC Timer has started");
         break;
     case TUYA_BLE_CB_EVT_OTA_DATA:
         tuya_ota_proc(event->ota_data.type,event->ota_data.p_data,event->ota_data.data_len);
@@ -251,6 +247,8 @@ void tuya_ble_app_init(void)
     //tuya_timer_start(TIMER_FIRST,1000);
 
     tuya_print_sysInfor();
+
+    tem_hum_i2c_io_init();//≥ı ºªØIIC
     TUYA_APP_LOG_INFO("app version : "TY_APP_VER_STR);
 
 }

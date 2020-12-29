@@ -1,737 +1,445 @@
-//=============================================================================
-//	S E N S I R I O N	AG,	Laubisruetistr. 50, CH-8712 Staefa, Switzerland
-//=============================================================================
-// Project	:	SHT3x Sample Code (V1.1)
-// File	:	sht3x.c (V1.1)
-// Author	:	RFU
-// Date	:	6-Mai-2015
-// Controller:	STM32F100RB
-// IDE	:	碌Vision V5.12.0.0
-// Compiler	:	Armcc
-// Brief	:	Sensor Layer: Implementation of functions for sensor access.
-//=============================================================================
+#include "sht3x.h"
+#include "../../drivers/8258/timer.h"
+#include "../../drivers/8258/i2c.h"
+#include "tuya_ble_log.h"
+#define HARD_I2C_ENABLE 0
 
-//-- Includes -----------------------------------------------------------------
-#include "sht3x.h" 
-#include "i2c.h"
+#define I2C_SCL         GPIO_PB4
+#define I2C_SDA         GPIO_PD2
 
+int SHT30_temperature;
+u8 SHT30_humidity;
 
-//-- Defines ------------------------------------------------------------------
-// Generator polynomial for CRC
-#define POLYNOMIAL	0x131 // P(x) = x^8 + x^5 + x^4 + 1 = 100110001
+enum{
+	gpio_input_mode,
+	gpio_output_mode,
+};
 
-//=============================================================================
-// IO-Pins	/* -- adapt the defines for your uC -- */
-//-----------------------------------------------------------------------------
-// Reset on port B, bit 12
-#define RESET_LOW()	(GPIOB->BSRR = 0x10000000) // set Reset to low 
-#define RESET_HIGH() (GPIOB->BSRR = 0x00001000) // set Reset to high
-
-// Alert on port B, bit 10
-#define ALERT_READ	(GPIOB->IDR	& 0x0400)	// read Alert
-//=============================================================================
-
-//-- Global variables ---------------------------------------------------------
-static u8t _i2cAddress; // I2C Address
-
-//-- Static function prototypes ----------------------------------------------- 
-static etError SHT3X_WriteAlertLimitData(ft humidity, ft temperature);
-static etError SHT3X_ReadAlertLimitData(ft* humidity, ft* temperature); 
-static etError SHT3X_StartWriteAccess(void);
-static etError SHT3X_StartReadAccess(void); 
-static void SHT3X_StopAccess(void);
-static etError SHT3X_WriteCommand(etCommands command);
-static etError SHT3X_Read2BytesAndCrc(u16t* data, etI2cAck finaleAckNack,u8t timeout); 
-static etError SHT3X_Write2BytesAndCrc(u16t data); 
-static u8t SHT3X_CalcCrc(u8t data[], u8t nbrOfBytes);
-static etError SHT3X_CheckCrc(u8t data[], u8t nbrOfBytes, u8t checksum); 
-static ft SHT3X_CalcTemperature(u16t rawValue);
-static ft SHT3X_CalcHumidity(u16t rawValue);
-static u16t SHT3X_CalcRawTemperature(ft temperature); 
-static u16t SHT3X_CalcRawHumidity(ft humidity);
-
-//-----------------------------------------------------------------------------
-void SHT3X_Init(u8t i2cAddress)	/* -- adapt the init for your uC -- */
+static void i2c_delay(unsigned long tim_1us)
 {
-    // init I/O-pins
-    RCC->APB2ENR |= 0x00000008;	// I/O port B clock enabled
-
-    // Alert on port B, bit 10
-    GPIOB->CRH	&= 0xFFFFF0FF;	// set floating input for Alert-Pin
-    GPIOB->CRH	|= 0x00000400;	//
-    
-    // Reset on port B, bit 12
-    GPIOB->CRH	&= 0xFFF0FFFF;	// set push-pull output for Reset pin 
-    GPIOB->CRH	|= 0x00010000;	//
-    RESET_LOW();
-
-    I2c_Init(); // init I2C 
-    SHT3X_SetI2cAdr(i2cAddress);
-
-    // release reset 
-    RESET_HIGH();
+	sleep_us(tim_1us);
 }
 
-//-----------------------------------------------------------------------------
-void SHT3X_SetI2cAdr(u8t i2cAddress)
+static void i2c_sda_pin_mode_set(u8 mode,u8 level)
 {
-    _i2cAddress = i2cAddress;
+	if(mode == gpio_input_mode){
+		gpio_set_input_en(I2C_SDA,1);
+		gpio_set_output_en(I2C_SDA,0);
+	}else if(mode == gpio_output_mode){
+		gpio_set_input_en(I2C_SDA,0);
+		gpio_set_output_en(I2C_SDA,1);
+	}
+}
+static void i2c_sda_pin_set(u8 level)
+{
+	gpio_write(I2C_SDA, level);
+}
+static void i2c_scl_pin_set(u8 level)
+{
+	gpio_write(I2C_SCL, level);
+
+}
+static u8 i2c_sda_pin_status_get(void)
+{
+    return gpio_read(I2C_SDA)?1:0;
 }
 
-//-----------------------------------------------------------------------------
-etError SHT3x_ReadSerialNumber(u32t* serialNumber)
+/**
+ * @description: i2c ack func
+ * @param {type} none
+ * @return: none
+ */
+static void i2c_ack(void)
 {
-    etError error; // error code 
-    u16t serialNumWords[2];
+    i2c_scl_pin_set(0);
+    i2c_delay(25);
 
-    error = SHT3X_StartWriteAccess();
-    
+    i2c_sda_pin_mode_set( gpio_output_mode, 0 );
+    i2c_sda_pin_set( 0 );
+    i2c_delay(25);
 
+    i2c_scl_pin_set( 1 );
+    i2c_delay(25);
+    i2c_scl_pin_set( 0 );
+    i2c_delay(25);
+}
 
-    // write "read serial number" command
-    error |= SHT3X_WriteCommand(CMD_READ_SERIALNBR);
+/**
+ * @description: i2c none ack func
+ * @param {type} none
+ * @return: none
+ */
+static void i2c_noack(void)
+{
+    i2c_sda_pin_mode_set( gpio_output_mode, 1 );
+    i2c_sda_pin_set( 1 );
 
-    // if no error, start read access
-    if(error == NO_ERROR) error = SHT3X_StartReadAccess();
-    
-    // if no error, read first serial number word
-    if(error == NO_ERROR) error = SHT3X_Read2BytesAndCrc(&serialNumWords[0], ACK, 100);
-    // if no error, read second serial number word
-    if(error == NO_ERROR) error = SHT3X_Read2BytesAndCrc(&serialNumWords[1], NACK, 0);
-    SHT3X_StopAccess();
-    // if no error, calc serial number as 32-bit integer
-    if(error == NO_ERROR)
+    i2c_delay(25);
+    i2c_scl_pin_set( 1 );
+    i2c_delay(25);
+    i2c_scl_pin_set( 0 );
+    i2c_delay(25);
+}
+
+/**
+ * @description: i2c wait ack
+ * @param {type} none
+ * @return: rev ack return true else return false
+ */
+static u8 i2c_wait_ack(void)
+{
+    //u8 state = 0;
+    u8 cnt = 50;
+
+    i2c_sda_pin_mode_set( gpio_input_mode, 1 );/* set input and release SDA */
+    i2c_sda_pin_set( 1 );
+    i2c_delay(25);
+
+    i2c_scl_pin_set( 0 );       /* put down SCL ready to cheack SCA status */
+    i2c_delay(25);
+
+    i2c_scl_pin_set( 1 );
+    i2c_delay(25);
+    while( i2c_sda_pin_status_get() )       /* get ack */
     {
-        *serialNumber = (serialNumWords[0] << 16) | serialNumWords[1];
-    }
-
-    return error;
-}
-
-//-----------------------------------------------------------------------------
-etError SHT3X_ReadStatus(u16t* status)
-{
-    etError error; // error code 
-    error = SHT3X_StartWriteAccess();
-    // if no error, write "read status" command
-    if(error == NO_ERROR) error = SHT3X_WriteCommand(CMD_READ_STATUS);
-    // if no error, start read access
-    if(error == NO_ERROR) error = SHT3X_StartReadAccess();
-    // if no error, read status
-    if(error == NO_ERROR) error = SHT3X_Read2BytesAndCrc(status, NACK, 0);
-    
-
-    SHT3X_StopAccess();
-
-    return error;
-}
-
-//-----------------------------------------------------------------------------
-etError SHT3X_ClearAllAlertFlags(void)
-{
-    etError error; // error code 
-    error = SHT3X_StartWriteAccess();
-    // if no error, write clear status register command
-    if(error == NO_ERROR) error = SHT3X_WriteCommand(CMD_CLEAR_STATUS); 
-    SHT3X_StopAccess();
-    return error;
-}
-
-//-----------------------------------------------------------------------------
-etError SHT3X_GetTempAndHumi(ft* temperature, ft* humidity,etRepeatability repeatability, etMode mode, u8t timeout)
-{
-    etError error;
-
-    switch(mode)
-    {
-        case MODE_CLKSTRETCH: // get temperature with clock stretching mode 
-            error = SHT3X_GetTempAndHumiClkStretch(temperature, humidity,repeatability, timeout);
-            break;
-        case MODE_POLLING:	// get temperature with polling mode 
-            error = SHT3X_GetTempAndHumiPolling(temperature, humidity,repeatability, timeout);
-            break; 
-        default:
-            error = PARM_ERROR; 
-            break;
-    }
-
-    return error;
-}
-
-
-//-----------------------------------------------------------------------------
-etError SHT3X_GetTempAndHumiClkStretch(ft* temperature, ft* humidity,etRepeatability repeatability, u8t timeout)
-{
-    etError error;	// error code
-    u16t	rawValueTemp; // temperature raw value from sensor 
-    u16t	rawValueHumi; // humidity raw value from sensor
-
-    error = SHT3X_StartWriteAccess();
-
-    // if no error ...
-    if(error == NO_ERROR)
-    {
-        // start measurement in clock stretching mode
-        // use depending on the required repeatability, the corresponding command
-        
-
-        switch(repeatability)
+        cnt--;
+        if( cnt==0 )
         {
-            case REPEATAB_LOW:
-                error = SHT3X_WriteCommand(CMD_MEAS_CLOCKSTR_L); 
-                break;
-            case REPEATAB_MEDIUM:
-                error = SHT3X_WriteCommand(CMD_MEAS_CLOCKSTR_M); 
-                break;
-            case REPEATAB_HIGH:
-                error = SHT3X_WriteCommand(CMD_MEAS_CLOCKSTR_H); 
-                break;
-            default:
-                error = PARM_ERROR; 
-                break;
+            i2c_scl_pin_set( 0 );
+            return FALSE;
         }
+        i2c_delay(25);
     }
-
-    // if no error, start read access
-    if(error == NO_ERROR) error = SHT3X_StartReadAccess();
-    // if no error, read temperature raw values
-    if(error == NO_ERROR) error = SHT3X_Read2BytesAndCrc(&rawValueTemp, ACK, timeout);
-    // if no error, read humidity raw values
-    if(error == NO_ERROR) error = SHT3X_Read2BytesAndCrc(&rawValueHumi, NACK, 0); 
-    SHT3X_StopAccess();
-    // if no error, calculate temperature in 掳C and humidity in %RH
-    if(error == NO_ERROR)
-    {
-        *temperature = SHT3X_CalcTemperature(rawValueTemp);
-        *humidity = SHT3X_CalcHumidity(rawValueHumi);
-    }
-
-    return error;
+    i2c_scl_pin_set( 0 );
+    i2c_delay(25);
+    return TRUE;
 }
 
-//-----------------------------------------------------------------------------
-etError SHT3X_GetTempAndHumiPolling(ft* temperature, ft* humidity,etRepeatability repeatability, u8t timeout)
+/**
+ * @description: i2c start signal
+ * @param {type} none
+ * @return: none
+ */
+void i2c_start(void)
 {
-    etError error;	// error code
-    u16t	rawValueTemp;	// temperature raw value from sensor 
-    u16t	rawValueHumi;	// humidity raw value from sensor
+    i2c_sda_pin_mode_set( gpio_output_mode, 1 );    //SDA output mode
 
-    error	= SHT3X_StartWriteAccess();
+    i2c_scl_pin_set( 1 );
+    i2c_sda_pin_set( 1 );
+    i2c_delay(25);
 
-    // if no error ...
-    if(error == NO_ERROR)
+    i2c_sda_pin_set( 0 );
+    i2c_delay(25);
+
+    i2c_scl_pin_set( 0 );
+    i2c_delay(25);
+}
+
+/**
+ * @description: i2c stop signal
+ * @param {type} none
+ * @return: none
+ */
+void i2c_stop(void)
+{
+    i2c_sda_pin_mode_set( gpio_output_mode, 0 );     //SDA input mode
+
+    i2c_scl_pin_set( 0 );
+    i2c_sda_pin_set( 0 );
+    i2c_delay(25);
+
+    i2c_scl_pin_set( 1 );
+    i2c_delay(25);
+
+    i2c_sda_pin_set( 1 );
+    i2c_delay(25);
+}
+
+/**
+ * @description: send one byte to i2c bus
+ * @param {uint8_t} data send to i2c
+ * @return: none
+ */
+void i2c_send_byte(u8 data)
+{
+    u8 i = 0;
+    i2c_scl_pin_set( 0 );
+    i2c_sda_pin_mode_set( gpio_output_mode, 1 );
+    for( i=0; i<8; i++ )
     {
-        // start measurement in polling mode
-        // use depending on the required repeatability, the corresponding command
-        switch(repeatability)
+        if( data & 0x80 )
         {
-            case REPEATAB_LOW:
-                error = SHT3X_WriteCommand(CMD_MEAS_POLLING_L); 
-                break;
-            case REPEATAB_MEDIUM:
-                error = SHT3X_WriteCommand(CMD_MEAS_POLLING_M); 
-                break;
-            case REPEATAB_HIGH:
-                error = SHT3X_WriteCommand(CMD_MEAS_POLLING_H);
-                break; 
-            default:
-                error = PARM_ERROR; 
-                break;
+            i2c_sda_pin_set( 1 );
         }
-    }
-
-    // if no error, wait until measurement ready
-    if(error == NO_ERROR)
-    {
-        // poll every 1ms for measurement ready until timeout
-        while(timeout--)
+        else
         {
-            // check if the measurement has finished 
-            error = SHT3X_StartReadAccess();
-
-            // if measurement has finished -> exit loop
-            if(error == NO_ERROR) break;
-
-            // delay 1ms 
-            DelayMicroSeconds(1000);
+            i2c_sda_pin_set( 0 );
         }
+        i2c_delay(25);
+        i2c_scl_pin_set( 1 );
+        i2c_delay(25);
+        i2c_scl_pin_set( 0 );
+        i2c_delay(25);
+        data <<= 1;
     }
-    // if no error, read temperature and humidity raw values
-    if(error == NO_ERROR)
-    {
-        error |= SHT3X_Read2BytesAndCrc(&rawValueTemp, ACK, 0); 
-        error |= SHT3X_Read2BytesAndCrc(&rawValueHumi, NACK, 0);
-    }
-
-    SHT3X_StopAccess();
-
-    // if no error, calculate temperature in 掳C and humidity in %RH
-    if(error == NO_ERROR)
-    {
-        *temperature = SHT3X_CalcTemperature(rawValueTemp);
-        *humidity = SHT3X_CalcHumidity(rawValueHumi);
-    }
-
-    return error;
 }
 
-//-----------------------------------------------------------------------------
-etError SHT3X_StartPeriodicMeasurment(etRepeatability repeatability,etFrequency frequency)
+/**
+ * @description: send bytes to i2c bus
+ * @param {type} none
+ * @return: none
+ */
+void i2c_send_bytes(u8 adderss_cmd, u8 *buff, u8 len)
 {
-    etError error;	// error code 
-    error = SHT3X_StartWriteAccess();
-    // if no error, start periodic measurement
-    if(error == NO_ERROR)
+    u8 i;
+    i2c_send_byte( adderss_cmd );
+    i2c_wait_ack();
+
+    for( i=0;i<len;i++ )
     {
-        // use depending on the required repeatability and frequency,
-        // the corresponding command
-        switch(repeatability)
+        i2c_send_byte( buff[i] );
+        i2c_wait_ack();
+    }
+}
+
+/**
+ * @description: recive one byte from i2c bus
+ * @param {type} none
+ * @return: none
+ */
+void i2c_rcv_byte(u8 *data)
+{
+    u8 i;
+    i2c_sda_pin_mode_set( gpio_input_mode, 1 );
+    i2c_delay(25);
+    for( i=0;i<8;i++ )
+    {
+        i2c_scl_pin_set( 0 );
+        i2c_delay(25);
+
+        i2c_scl_pin_set( 1 );
+        *data = *data << 1;
+        if( i2c_sda_pin_status_get() )
         {
-            case REPEATAB_LOW: // low repeatability
-                switch(frequency)
-                {
-                    case FREQUENCY_HZ5:	// low repeatability,	0.5 Hz 
-                        error |= SHT3X_WriteCommand(CMD_MEAS_PERI_05_L);
-                        break;
-                    case FREQUENCY_1HZ:	// low repeatability,	1.0 Hz 
-                        error |= SHT3X_WriteCommand(CMD_MEAS_PERI_1_L); 
-                        break;
-                    case FREQUENCY_2HZ:	// low repeatability,	2.0 Hz 
-                        error |= SHT3X_WriteCommand(CMD_MEAS_PERI_2_L); 
-                        break;
-                    case FREQUENCY_4HZ:	// low repeatability,	4.0 Hz 
-                        error |= SHT3X_WriteCommand(CMD_MEAS_PERI_4_L); 
-                        break;
-                    case FREQUENCY_10HZ: // low repeatability, 10.0 Hz 
-                        error |= SHT3X_WriteCommand(CMD_MEAS_PERI_10_L); 
-                        break;
-                    default:
-                        error |= PARM_ERROR; 
-                        break;
-                }
-                break;
-
-            case REPEATAB_MEDIUM: // medium repeatability
-                switch(frequency)
-                {
-                    case FREQUENCY_HZ5:	// medium repeatability,	0.5 Hz 
-                        error |= SHT3X_WriteCommand(CMD_MEAS_PERI_05_M);
-                        break;
-                    case FREQUENCY_1HZ:	// medium repeatability,	1.0 Hz 
-                        error |= SHT3X_WriteCommand(CMD_MEAS_PERI_1_M);
-                        break;
-                    case FREQUENCY_2HZ:	// medium repeatability,	2.0 Hz 
-                        error |= SHT3X_WriteCommand(CMD_MEAS_PERI_2_M);
-                        break;
-                    case FREQUENCY_4HZ:	// medium repeatability,	4.0 Hz 
-                        error |= SHT3X_WriteCommand(CMD_MEAS_PERI_4_M);
-                        break;
-                    case FREQUENCY_10HZ: // medium repeatability, 10.0 Hz 
-                        error |= SHT3X_WriteCommand(CMD_MEAS_PERI_10_M);
-                        break; 
-                    default:
-                        error |= PARM_ERROR; 
-                        break;
-                }
-                break;
-
-            case REPEATAB_HIGH: // high repeatability
-                switch(frequency)
-                {
-                    case FREQUENCY_HZ5:	// high repeatability,	0.5 Hz 
-                        error |= SHT3X_WriteCommand(CMD_MEAS_PERI_05_H); 
-                        break;
-                    case FREQUENCY_1HZ:	// high repeatability,	1.0 Hz 
-                        error |= SHT3X_WriteCommand(CMD_MEAS_PERI_1_H); 
-                        break;
-                    case FREQUENCY_2HZ:	// high repeatability,	2.0 Hz 
-                        error |= SHT3X_WriteCommand(CMD_MEAS_PERI_2_H); 
-                        break;
-                    case FREQUENCY_4HZ:	// high repeatability,	4.0 Hz 
-                        error |= SHT3X_WriteCommand(CMD_MEAS_PERI_4_H); 
-                        break;
-                    case FREQUENCY_10HZ: // high repeatability, 10.0 Hz 
-                        error |= SHT3X_WriteCommand(CMD_MEAS_PERI_10_H); 
-                        break;
-                    default:
-                        error |= PARM_ERROR; 
-                        break;
-                }
-                break; 
-            default:
-                error |= PARM_ERROR; 
-                break;
+            *data |= 1;
         }
+        i2c_delay(25);
     }
-
-    SHT3X_StopAccess();
-
-    return error;
+    i2c_scl_pin_set( 0 );
 }
 
-//-----------------------------------------------------------------------------
-etError SHT3X_ReadMeasurementBuffer(ft* temperature, ft* humidity)
+/**
+ * @description: recive bytes from i2c bus,last byte none ack
+ * @param {type} none
+ * @return: none
+ */
+void i2c_rcv_bytes(u8 adderss_cmd, u8 *buff, u8 len)
 {
-    etError	error;	// error code
-    u16t	rawValueTemp; // temperature raw value from sensor 
-    u16t	rawValueHumi; // humidity raw value from sensor
-
-    error = SHT3X_StartWriteAccess();
-
-    // if no error, read measurements
-    if(error == NO_ERROR) error = SHT3X_WriteCommand(CMD_FETCH_DATA); 
-    if(error == NO_ERROR) error = SHT3X_StartReadAccess();
-    if(error == NO_ERROR) error = SHT3X_Read2BytesAndCrc(&rawValueTemp, ACK, 0); 
-    if(error == NO_ERROR) error = SHT3X_Read2BytesAndCrc(&rawValueHumi, NACK, 0);
-
-    // if no error, calculate temperature in 掳C and humidity in %RH
-    if(error == NO_ERROR)
+    u8 i;
+    i2c_send_byte( adderss_cmd );
+    i2c_wait_ack();
+    for( i=0;i<len;i++ )
     {
-        *temperature = SHT3X_CalcTemperature(rawValueTemp);
-        *humidity = SHT3X_CalcHumidity(rawValueHumi);
+        i2c_rcv_byte( &buff[i] );
+        if( i<len-1 )
+            i2c_ack();
+        else
+            i2c_noack();
     }
-
-    SHT3X_StopAccess();
-
-    return error;
-}
-
-//-----------------------------------------------------------------------------
-etError SHT3X_EnableHeater(void)
-{
-    etError error; // error code 
-    error = SHT3X_StartWriteAccess();
-    // if no error, write heater enable command
-    if(error == NO_ERROR) error = SHT3X_WriteCommand(CMD_HEATER_ENABLE); 
-    SHT3X_StopAccess();
-    return error;
-}
-
-//-----------------------------------------------------------------------------
-etError SHT3X_DisableHeater(void)
-{
-    etError error; // error code
-    
-    error = SHT3X_StartWriteAccess();
-
-    // if no error, write heater disable command
-    if(error == NO_ERROR) error = SHT3X_WriteCommand(CMD_HEATER_DISABLE); 
-    SHT3X_StopAccess();
-    return error;
 }
 
 
-//-----------------------------------------------------------------------------
-etError SHT3X_SetAlertLimits(ft humidityHighSet,	ft temperatureHighSet,ft humidityHighClear, ft temperatureHighClear, ft humidityLowClear,	ft temperatureLowClear, ft humidityLowSet,	ft temperatureLowSet)
+void tem_hum_i2c_soft_init()
 {
-    etError	error;	// error code
+	gpio_set_func(I2C_SDA,AS_GPIO);
+//	gpio_setup_up_down_resistor(I2C_SDA,PM_PIN_PULLUP_10K);
+	gpio_set_output_en(I2C_SDA,1);
+	gpio_write(I2C_SDA, 1);
 
-    // write humidity & temperature alter limits, high set 
-    error = SHT3X_StartWriteAccess();
-    if(error == NO_ERROR) error = SHT3X_WriteCommand(CMD_W_AL_LIM_HS); 
-    if(error == NO_ERROR) error = SHT3X_WriteAlertLimitData(humidityHighSet,temperatureHighSet);
-    SHT3X_StopAccess();
+	gpio_set_func(I2C_SCL,AS_GPIO);
+//	gpio_setup_up_down_resistor(I2C_SCL,PM_PIN_PULLUP_10K);
+	gpio_set_output_en(I2C_SCL,1);
+	gpio_write(I2C_SCL, 1);
+}
 
-    if(error == NO_ERROR)
+void tem_hum_i2c_start(void)
+{
+    i2c_sda_pin_mode_set( gpio_output_mode, 1 );    //SDA output mode
+
+    i2c_scl_pin_set( 1 );
+    i2c_sda_pin_set( 1 );
+    i2c_delay(25);
+
+    i2c_sda_pin_set( 0 );
+    i2c_delay(25);
+
+    i2c_scl_pin_set( 0 );
+    i2c_delay(25);
+}
+
+/**
+ * @description: i2c stop signal
+ * @param {type} none
+ * @return: none
+ */
+void tem_hum_i2c_stop(void)
+{
+    i2c_sda_pin_mode_set( gpio_output_mode, 0 );     //SDA input mode
+
+    i2c_scl_pin_set( 0 );
+    i2c_sda_pin_set( 0 );
+    i2c_delay(25);
+
+    i2c_scl_pin_set( 1 );
+    i2c_delay(25);
+
+    i2c_sda_pin_set( 1 );
+    i2c_delay(25);
+}
+
+
+int tem_hum_i2c_read(u8* buff)
+{
+#if HARD_I2C_ENABLE
+	u8 r = irq_disable();
+	//	i2c_read_series(0,0,buff,4);
+	i2c_read_series(SHT30_ADDR|I2C_READ,1,buff,6);
+	irq_restore(r);
+#else
+    i2c_start();
+    i2c_rcv_bytes( SHT30_ADDR | I2C_READ, buff, SHT30_RESPONSE_LEN );
+    i2c_stop();
+#endif
+}
+
+void tem_hum_i2c_soft_reset()
+{
+    u8 rst_msg[] = SHT30_RESET_MSG;
+#if HARD_I2C_ENABLE
+	i2c_write_series(SHT30_ADDR|I2C_WRITE,1,rst_msg,SHT30_RESET_MSG_LEN);
+#else
+    i2c_start();
+    i2c_send_bytes( SHT30_ADDR | I2C_WRITE, rst_msg, SHT30_RESET_MSG_LEN );
+    i2c_stop();
+
+#endif
+
+}
+
+void tem_hum_i2c_mode_cfg()
+{
+    u8 cfg_msg[] = SHT30_READ_CFG_MSG;
+#if HARD_I2C_ENABLE
+	i2c_write_series(SHT30_ADDR|I2C_WRITE,1,cfg_msg,SHT30_READ_CFG_MSG_LEN);
+#else
+    i2c_start();
+    i2c_send_bytes( SHT30_ADDR | I2C_WRITE, cfg_msg, SHT30_READ_CFG_MSG_LEN );
+    i2c_stop();
+#endif
+
+}
+void tem_hum_i2c_io_init()
+{
+#if HARD_I2C_ENABLE
+    i2c_master_init(SHT30_ADDR,8);//set clk to 500k
+    i2c_gpio_set(I2C_GPIO_GROUP_C0C1);
+//	tem_hum_i2c_soft_reset();
+#else
+	tem_hum_i2c_soft_init();
+	tem_hum_i2c_soft_reset();
+
+#endif
+}
+
+u8 sensor_sht30_read_data_finsh_callback(u8 *buff,short* temp_ten,u8* hum_ten);
+
+int temp_humi_i2c_collect_and_report()
+{
+	//if(true == tem_hum_i2c_start_read(&sensor_save.temperature,&sensor_save.humidity)){
+		//mesh_vendor_dp_report(temperature_dp,sensor_save.temperature);
+		//mesh_vendor_dp_report(humidity_dp,sensor_save.humidity);
+	//}else{
+		//APP_LOG("error: collect tem_hum failed\r\n");
+	//}
+	return -1;
+}
+
+u8 tem_hum_i2c_start_read(short* temp_ten,u8* hum_ten)
+{
+	static u8 buff[6];
+	static u8 err_cnt = 0;
+	memset(buff,0,6);
+	tem_hum_i2c_mode_cfg();
+	sleep_us(13000);
+
+	tem_hum_i2c_read(buff);
+
+
+	u8 ret_status = sensor_sht30_read_data_finsh_callback(buff,temp_ten,hum_ten);
+	if(ret_status == false){
+		TUYA_APP_LOG_INFO("collect failed\r\n");
+		tem_hum_i2c_soft_reset();
+		//if(err_cnt < 20){
+		//	err_cnt++;
+		//	ty_timer_event_delete(temp_humi_i2c_collect_and_report);
+		//	ty_timer_event_add(temp_humi_i2c_collect_and_report,5*1000);
+			//TODO: REPEAT
+		//}
+	}else{
+		err_cnt = 0;
+	}
+	return ret_status;
+
+}
+u8 crc_array[256] = {
+        0x00,0x31,0x62,0x53,0xc4,0xf5,0xa6,0x97,0xb9,0x88,0xdb,0xea,0x7d,0x4c,0x1f,0x2e,
+		    0x43,0x72,0x21,0x10,0x87,0xb6,0xe5,0xd4,0xfa,0xcb,0x98,0xa9,0x3e,0x0f,0x5c,0x6d,
+		    0x86,0xb7,0xe4,0xd5,0x42,0x73,0x20,0x11,0x3f,0x0e,0x5d,0x6c,0xfb,0xca,0x99,0xa8,
+		    0xc5,0xf4,0xa7,0x96,0x01,0x30,0x63,0x52,0x7c,0x4d,0x1e,0x2f,0xb8,0x89,0xda,0xeb,
+		    0x3d,0x0c,0x5f,0x6e,0xf9,0xc8,0x9b,0xaa,0x84,0xb5,0xe6,0xd7,0x40,0x71,0x22,0x13,
+		    0x7e,0x4f,0x1c,0x2d,0xba,0x8b,0xd8,0xe9,0xc7,0xf6,0xa5,0x94,0x03,0x32,0x61,0x50,
+		    0xbb,0x8a,0xd9,0xe8,0x7f,0x4e,0x1d,0x2c,0x02,0x33,0x60,0x51,0xc6,0xf7,0xa4,0x95,
+		    0xf8,0xc9,0x9a,0xab,0x3c,0x0d,0x5e,0x6f,0x41,0x70,0x23,0x12,0x85,0xb4,0xe7,0xd6,
+		    0x7a,0x4b,0x18,0x29,0xbe,0x8f,0xdc,0xed,0xc3,0xf2,0xa1,0x90,0x07,0x36,0x65,0x54,
+		    0x39,0x08,0x5b,0x6a,0xfd,0xcc,0x9f,0xae,0x80,0xb1,0xe2,0xd3,0x44,0x75,0x26,0x17,
+		    0xfc,0xcd,0x9e,0xaf,0x38,0x09,0x5a,0x6b,0x45,0x74,0x27,0x16,0x81,0xb0,0xe3,0xd2,
+		    0xbf,0x8e,0xdd,0xec,0x7b,0x4a,0x19,0x28,0x06,0x37,0x64,0x55,0xc2,0xf3,0xa0,0x91,
+		    0x47,0x76,0x25,0x14,0x83,0xb2,0xe1,0xd0,0xfe,0xcf,0x9c,0xad,0x3a,0x0b,0x58,0x69,
+		    0x04,0x35,0x66,0x57,0xc0,0xf1,0xa2,0x93,0xbd,0x8c,0xdf,0xee,0x79,0x48,0x1b,0x2a,
+		    0xc1,0xf0,0xa3,0x92,0x05,0x34,0x67,0x56,0x78,0x49,0x1a,0x2b,0xbc,0x8d,0xde,0xef,
+		    0x82,0xb3,0xe0,0xd1,0x46,0x77,0x24,0x15,0x3b,0x0a,0x59,0x68,0xff,0xce,0x9d,0xac
+            };
+
+u8 CRC8_Table(u8 *p, u8 counter)
+{
+    u8 crc8 = 0xFF;
+    for( ; counter > 0; counter--)
     {
-        // write humidity & temperature alter limits, high clear error = SHT3X_StartWriteAccess();
-        if(error == NO_ERROR) error = SHT3X_WriteCommand(CMD_W_AL_LIM_HC); 
-        if(error == NO_ERROR) error = SHT3X_WriteAlertLimitData(humidityHighClear,temperatureHighClear);
-        SHT3X_StopAccess();
+       crc8 = crc_array[crc8^*p];
+       p++;
     }
+  return crc8;
+}
 
-    if(error == NO_ERROR)
+u8 sensor_sht30_read_data_finsh_callback(u8 *buff,short* temp_ten,u8* hum_ten)
+{
+    u16 temp, hum;
+    if( ( CRC8_Table(&buff[0],2) != buff[2] ) || ( CRC8_Table(&buff[3],2) != buff[5] ) )
     {
-        // write humidity & temperature alter limits, low clear error = SHT3X_StartWriteAccess();
-        if(error == NO_ERROR) error = SHT3X_WriteCommand(CMD_W_AL_LIM_LC); 
-        if(error == NO_ERROR) error = SHT3X_WriteAlertLimitData(humidityLowClear,temperatureLowClear);
-        SHT3X_StopAccess();
+        return false;
     }
 
-    if(error == NO_ERROR)
-    {
-        // write humidity & temperature alter limits, low set error = SHT3X_StartWriteAccess();
-        if(error == NO_ERROR) error = SHT3X_WriteCommand(CMD_W_AL_LIM_LS); 
-        if(error == NO_ERROR) error = SHT3X_WriteAlertLimitData(humidityLowSet,temperatureLowSet);
-        SHT3X_StopAccess();
-    }
+    temp = ((u16)buff[0]<<8) | buff[1];
+    hum = ((u16)buff[3]<<8) | buff[4];
 
-    return error;
+    *hum_ten = ( hum*100 ) / 65535;                           /* 这里放大了10倍*/
+	if(*hum_ten > 100) *hum_ten = 100;
+	if(*hum_ten <0)     *hum_ten = 0;
+
+    *temp_ten = (temp * 175*10) / 65535 - 450;         /* 这里放大了10倍*/
+	if(*temp_ten > 20000) *temp_ten = 20000;
+	if(*temp_ten < -4000) *temp_ten = 4000;
+    //APP_LOG( "------T:%d H:%d\r\n", *temp_ten, *hum_ten );
+    return true;
 }
 
-//-----------------------------------------------------------------------------
-etError SHT3X_GetAlertLimits(ft* humidityHighSet,	ft* temperatureHighSet,ft* humidityHighClear, ft* temperatureHighClear,ft* humidityLowClear,	ft* temperatureLowClear, ft* humidityLowSet,	ft* temperatureLowSet)
-{
-    etError	error;	// error code
-
-    // read humidity & temperature alter limits, high set 
-    error = SHT3X_StartWriteAccess();
-    if(error == NO_ERROR) error = SHT3X_WriteCommand(CMD_R_AL_LIM_HS); 
-    if(error == NO_ERROR) error = SHT3X_StartReadAccess();
-    if(error == NO_ERROR) error = SHT3X_ReadAlertLimitData(humidityHighSet,temperatureHighSet);
-    SHT3X_StopAccess();
-
-    if(error == NO_ERROR)
-    {
-        // read humidity & temperature alter limits, high clear error = SHT3X_StartWriteAccess();
-        if(error == NO_ERROR) error = SHT3X_WriteCommand(CMD_R_AL_LIM_HC); 
-        if(error == NO_ERROR) error = SHT3X_StartReadAccess();
-        if(error == NO_ERROR) error = SHT3X_ReadAlertLimitData(humidityHighClear,temperatureHighClear);
-        SHT3X_StopAccess();
-    }
-
-    if(error == NO_ERROR)
-    {
-        // read humidity & temperature alter limits, low clear error = SHT3X_StartWriteAccess();
-        if(error == NO_ERROR) error = SHT3X_WriteCommand(CMD_R_AL_LIM_LC); 
-        if(error == NO_ERROR) error = SHT3X_StartReadAccess();
-        if(error == NO_ERROR) error = SHT3X_ReadAlertLimitData(humidityLowClear,temperatureLowClear);
-        SHT3X_StopAccess();
-    }
-
-    if(error == NO_ERROR)
-    {
-        // read humidity & temperature alter limits, low set error = SHT3X_StartWriteAccess();
-        if(error == NO_ERROR) error = SHT3X_WriteCommand(CMD_R_AL_LIM_LS); 
-        if(error == NO_ERROR) error = SHT3X_StartReadAccess();
-        if(error == NO_ERROR) error = SHT3X_ReadAlertLimitData(humidityLowSet,temperatureLowSet);
-        SHT3X_StopAccess();
-    }
-
-    return error;
-}
-
-//-----------------------------------------------------------------------------
-bt SHT3X_ReadAlert(void)
-{
-    // read alert pin
-    return (ALERT_READ != 0) ? TRUE : FALSE;
-}
-
-//-----------------------------------------------------------------------------
-etError SHT3X_SoftReset(void)
-{
-    etError error; // error code 
-    error = SHT3X_StartWriteAccess();
-
-    // write reset command
-    error |= SHT3X_WriteCommand(CMD_SOFT_RESET); 
-    SHT3X_StopAccess();
-    // if no error, wait 50 ms after reset
-    if(error == NO_ERROR) DelayMicroSeconds(50000);
-
-    return error;
-}
-
-//-----------------------------------------------------------------------------
-void SHT3X_HardReset(void)
-{
-    // set reset low 
-    RESET_LOW();
-
-    // wait 100 ms 
-    DelayMicroSeconds(100000);
-
-    // release reset 
-    RESET_HIGH();
-
-    // wait 50 ms after reset 
-    DelayMicroSeconds(50000);
-}
-
-
-//-----------------------------------------------------------------------------
-static etError SHT3X_WriteAlertLimitData(ft humidity, ft temperature)
-{
-    etError	error;	// error code
-
-    i16t rawHumidity; 
-    i16t rawTemperature;
-
-    if((humidity < 0.0f) || (humidity > 100.0f) || (temperature < -45.0f) || (temperature > 130.0f))
-    {
-        error = PARM_ERROR;
-    }
-    else
-    {
-        rawHumidity	= SHT3X_CalcRawHumidity(humidity); 
-        rawTemperature = SHT3X_CalcRawTemperature(temperature);
-
-        error = SHT3X_Write2BytesAndCrc((rawHumidity & 0xFE00) | ((rawTemperature >> 7) & 0x001FF));
-    }
-
-    return error;
-}
-
-//-----------------------------------------------------------------------------
-static etError SHT3X_ReadAlertLimitData(ft* humidity, ft* temperature)
-{
-    etError	error;	// error code 
-    u16t	data;
-
-    error = SHT3X_Read2BytesAndCrc(&data, NACK, 0);
-    
-
-    if(error == NO_ERROR)
-    {
-        *humidity = SHT3X_CalcHumidity(data & 0xFE00);
-        *temperature = SHT3X_CalcTemperature(data << 7);
-    }
-
-    return error;
-}
-
-//-----------------------------------------------------------------------------
-static etError SHT3X_StartWriteAccess(void)
-{
-    etError error; // error code
-
-    // write a start condition 
-    I2c_StartCondition();
-
-    // write the sensor I2C address with the write flag 
-    error = I2c_WriteByte(_i2cAddress << 1);
-
-    return error;
-}
-
-//-----------------------------------------------------------------------------
-static etError SHT3X_StartReadAccess(void)
-{
-    etError error; // error code
-
-    // write a start condition 
-    I2c_StartCondition();
-
-    // write the sensor I2C address with the read flag 
-    error = I2c_WriteByte(_i2cAddress << 1 | 0x01);
-
-    return error;
-}
-
-//-----------------------------------------------------------------------------
-static void SHT3X_StopAccess(void)
-{
-    // write a stop condition 
-    I2c_StopCondition();
-}
-
-//-----------------------------------------------------------------------------
-static etError SHT3X_WriteCommand(etCommands command)
-{
-    etError error; // error code
-
-    // write the upper 8 bits of the command to the sensor 
-    error	= I2c_WriteByte(command >> 8);
-    
-    // write the lower 8 bits of the command to the sensor 
-    error |= I2c_WriteByte(command & 0x00FF);
-
-    return error;
-}
-
-//-----------------------------------------------------------------------------
-static etError SHT3X_Read2BytesAndCrc(u16t* data, etI2cAck finaleAckNack,u8t timeout)
-{
- 
-
-    etError error;	// error code
-    u8t	bytes[2]; // read data array 
-    u8t	checksum; // checksum byte
-
-    // read two data bytes and one checksum byte
-    error = I2c_ReadByte(&bytes[0], ACK, timeout);
-    if(error == NO_ERROR) error = I2c_ReadByte(&bytes[1], ACK, 0);
-    if(error == NO_ERROR) error = I2c_ReadByte(&checksum, finaleAckNack, 0);
-
-    // verify checksum
-    if(error == NO_ERROR) error = SHT3X_CheckCrc(bytes, 2, checksum);
-
-    // combine the two bytes to a 16-bit value
-    *data = (bytes[0] << 8) | bytes[1];
-
-    return error;
-}
-
-//-----------------------------------------------------------------------------
-static etError SHT3X_Write2BytesAndCrc(u16t data)
-{
-    etError error;	// error code
-    u8t	bytes[2]; // read data array 
-    u8t	checksum; // checksum byte
-
-    bytes[0] = data >> 8; bytes[1] = data & 0xFF;
-    checksum = SHT3X_CalcCrc(bytes, 2);
-
-    // write two data bytes and one checksum byte
-    error = I2c_WriteByte(bytes[0]); // write data MSB 
-    if(error == NO_ERROR) error = I2c_WriteByte(bytes[1]); // write data LSB 
-    if(error == NO_ERROR) error = I2c_WriteByte(checksum); // write checksum
-
-    return error;
-}
-
-//-----------------------------------------------------------------------------
-static u8t SHT3X_CalcCrc(u8t data[], u8t nbrOfBytes)
-{
-    u8t bit;	// bit mask
-    u8t crc = 0xFF; // calculated checksum 
-    u8t byteCtr;	// byte counter
-
-    // calculates 8-Bit checksum with given polynomial
-    for(byteCtr = 0; byteCtr < nbrOfBytes; byteCtr++)
-    {
-        crc ^= (data[byteCtr]); for(bit = 8; bit > 0; --bit)
-        {
-            if(crc & 0x80) crc = (crc << 1) ^ POLYNOMIAL; 
-            else	crc = (crc << 1);
-        }
-    }
-
-    return crc;
-}
-
-//-----------------------------------------------------------------------------
-static etError SHT3X_CheckCrc(u8t data[], u8t nbrOfBytes, u8t checksum)
-{
-    u8t crc;	// calculated checksum
-
-    // calculates 8-Bit checksum
-    crc = SHT3X_CalcCrc(data, nbrOfBytes);
-
-    // verify checksum
-    if(crc != checksum) return CHECKSUM_ERROR; 
-    else	return NO_ERROR;
-}
-
-//-----------------------------------------------------------------------------
-static ft SHT3X_CalcTemperature(u16t rawValue)
-{
-    // calculate temperature [掳C]
-    // T = -45 + 175 * rawValue / (2^16-1)
-    return 175.0f * (ft)rawValue / 65535.0f - 45.0f;
-}
-
-//-----------------------------------------------------------------------------
-static ft SHT3X_CalcHumidity(u16t rawValue)
-{
-    // calculate relative humidity [%RH]
-    // RH = rawValue / (2^16-1) * 100
-    return 100.0f * (ft)rawValue / 65535.0f;
-}
-
-//-----------------------------------------------------------------------------
-static u16t SHT3X_CalcRawTemperature(ft temperature)
-{
-    // calculate raw temperature [ticks]
-    // rawT = (temperature + 45) / 175 * (2^16-1)
-    return (temperature + 45.0f) / 175.0f * 65535.0f;
-}
-
-//-----------------------------------------------------------------------------
-static u16t SHT3X_CalcRawHumidity(ft humidity)
-{
-    // calculate raw relative humidity [ticks]
-    // rawRH = humidity / 100 * (2^16-1)
-    return humidity / 100.0f * 65535.0f;
-}
