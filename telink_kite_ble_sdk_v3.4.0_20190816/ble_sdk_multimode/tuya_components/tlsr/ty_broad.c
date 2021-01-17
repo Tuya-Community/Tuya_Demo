@@ -1,6 +1,6 @@
 #include "tuya_ble_common.h"
 #include "tuya_ble_log.h"
-#include "../tuya_ble_sdk/app/SHT3x/sht3x.h"
+#include "../tuya_ble_app/SHT3x/sht3x.h"
 #define DP_TEMP 1
 #define DP_HUMI 2
 //#define TY_DEVICE_PID "3224"
@@ -373,8 +373,7 @@ extern int SHT30_temperature;
 extern u8 SHT30_humidity;
 void tuya_SHT30_callback()
 {
-	//your loop code here
-	    uint8_t Data_Buffer[50] ={0};
+	    uint8_t Data_Buffer[20] ={0};
 	    uint32_t Data_Len = 14;
 		/*
 		 * dp data  buffer:  (Dp_id,Dp_type,Dp_len,Dp_data),(Dp_id,Dp_type,Dp_len,Dp_data),....
@@ -402,7 +401,7 @@ void tuya_SHT30_callback()
 }
 
 u32 tuya_timer_start(u8 timer_id,u32 time_ms_cnt)
-{//濞夈劍鍓扮�姘閺冨爼妫块敍宀冪Т鏉╋拷3缁夋帪绱濇担搴″閼版濮搁幀浣风瑓閺冪姵纭堕幐澶嬫閹笛嗩攽閿涘矂娼担搴″閼版濮搁幀浣风瑝閸欐濂栭崫锟�
+{//start a timer
 	u32 err_code=0;
 	if(timer_id >= TIMER_ID_MAX)
 	{

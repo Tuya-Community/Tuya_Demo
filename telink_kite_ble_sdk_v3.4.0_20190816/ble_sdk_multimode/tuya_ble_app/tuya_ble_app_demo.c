@@ -17,12 +17,15 @@
 #include "tuya_ota.h"
 
 #include "tuya_ble_common.h"
+#include "../tuya_ble_app/SHT3x/sht3x.h"
 static tuya_ble_device_param_t device_param = {0};
 
 
 static const char auth_key_test[] = "pldGjTb0hXRamyCS09fvgRqXUEwEcsC0";
 static const char device_id_test[] = "tuyabcc5c721a3ab";
 static const uint8_t mac_test[6] = {0xC3,0x0E,0x21,0x4D,0x23,0xDC}; //The actual MAC address is : 66:55:44:33:22:11
+
+extern void tuya_print_sysInfor();
 
 #define DP_TEMP 1
 #define DP_HUMI 2
@@ -32,7 +35,7 @@ static const uint8_t mac_test[6] = {0xC3,0x0E,0x21,0x4D,0x23,0xDC}; //The actual
 #define APP_CUSTOM_EVENT_4  4
 #define APP_CUSTOM_EVENT_5  5
 
-static uint8_t dp_data_test[8] = {0x6A,0x05,0x05,0x00,0x00,0x00,0x80,0x02};
+//static uint8_t dp_data_test[8] = {0x6A,0x05,0x05,0x00,0x00,0x00,0x80,0x02};
 static uint8_t dp_data_array[255+3];
 static uint16_t dp_data_len = 0;
 
@@ -248,7 +251,7 @@ void tuya_ble_app_init(void)
 
     tuya_print_sysInfor();
 
-    tem_hum_i2c_io_init();//≥ı ºªØIIC
+    tem_hum_i2c_io_init();//init IIC io
     TUYA_APP_LOG_INFO("app version : "TY_APP_VER_STR);
 
 }
