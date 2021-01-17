@@ -1,10 +1,20 @@
 #include "tuya_ble_common.h"
 #include "tuya_ble_log.h"
 #include "../tuya_ble_app/SHT3x/sht3x.h"
+#include "ty_broad.h"
 #define DP_TEMP 1
 #define DP_HUMI 2
+
+#define RESET_KEY_PIN  GPIO_PD7
+#define CONNECT_LIGHT_PIN GPIO_PA0
+
+#define PRESS_BUTTON 0
+u8 press_button_time = 0;
+const u8 press_button_maxtime = 5;
+
 //#define TY_DEVICE_PID "3224"
 
+bool light_state = TRUE;
 u32 reset_cnt=0;
 u8 pair_ok = 0;
 u32 unix_time=1569833410;
@@ -341,6 +351,13 @@ s32 tuya_rtc_timer_update_handler(void)
 	return (15*1000*1000);
 }
 
+void light_blink_handle(void)
+{
+	light_state = !light_state;
+	gpio_write(CONNECT_LIGHT_PIN,light_state);
+	//tuya_log_d("CONNECT STATE=%d\t",light_state);
+}
+
 void sysrun_ms_update_handler(void)
 {
 	//if(NORMAL_STATUS != ota_status) return 0;
@@ -357,6 +374,8 @@ void sysrun_ms_update_handler(void)
 	tick_last=tick_now;
     sysrun_ms+=ms;
 }
+
+
 static s32 tuya_conncet_monitor_callback()
 {
     tuya_ble_connect_status_t connect_state = tuya_ble_connect_status_get();
@@ -397,7 +416,22 @@ void tuya_SHT30_callback()
 		tuya_ble_dp_data_report((u8*)Data_Buffer,Data_Len);//report temperature and humidity
 		//tuya_log_dumpHex("temperature= ",7,(u8*)Data_Buffer,7 );
 		//tuya_log_dumpHex("/n humidity= ",7,(u8*)Data_Buffer+7,7 );
-		tuya_log_d("temperature=%d.%d C\t humidity=%d% RH\t",SHT30_temperature/10,SHT30_temperature%10,SHT30_humidity);
+		//tuya_log_d("temperature=%d.%d C\t humidity=%d% RH\t",SHT30_temperature/10,SHT30_temperature%10,SHT30_humidity);
+}
+
+
+u8 reset_ble_binding(void)
+{
+   u8 state = gpio_read(RESET_KEY_PIN);
+   if(state == PRESS_BUTTON)
+   {
+	   press_button_time++;
+   }
+   else press_button_time = 0;
+
+   if(press_button_time>press_button_maxtime) tuya_ble_device_factory_reset();
+   //tuya_log_d("press state is: %d",state);
+   return 0;
 }
 
 u32 tuya_timer_start(u8 timer_id,u32 time_ms_cnt)
@@ -505,6 +539,12 @@ u32 tuya_timer_start(u8 timer_id,u32 time_ms_cnt)
 		return 0;
 	}
 
+	else if(timer_id==TIMER_LIGHT);
+	{
+		bsp_timer_start(light_blink_handle,time_ms_cnt*1000);
+		return 0;
+	}
+
     return 1;
 }
 
@@ -599,6 +639,11 @@ u32 tuya_timer_delete(u8 timer_id)
 	else if(timer_id==TIMER_IIC)
 	{
 		bsp_timer_delete(tuya_SHT30_callback);
+		return 0;
+	}
+	else if(timer_id==TIMER_LIGHT);
+	{
+		bsp_timer_delete(light_blink_handle);
 		return 0;
 	}
 

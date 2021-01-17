@@ -1673,7 +1673,7 @@ uint8_t tuya_ble_commData_send(uint16_t cmd,uint32_t ack_sn,uint8_t *data,uint16
     {
         TUYA_BLE_LOG_ERROR("The length of the send to ble exceeds the maximum length.");
         air_send_packet.send_len = 0;
-        return 1; //鍔犲瘑鍚庢暟鎹姞涓婂姞瀵嗗ご瓒呰繃AIR_FRAME_MAX
+        return 1; //AIR_FRAME_MAX
     }
       
     air_send_packet.send_data = NULL;

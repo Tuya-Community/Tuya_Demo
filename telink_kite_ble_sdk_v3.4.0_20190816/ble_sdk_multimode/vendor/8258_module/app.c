@@ -628,6 +628,8 @@ _attribute_ram_code_ void user_init_deepRetn(void)
 }
 #endif
 
+extern u8 reset_ble_binding(void);
+
 //48Kram  0x840000~84c000        0x84873e   left:14530
 //32Kram  0x840000~848000        0x8477c2   left:2110
 /////////////////////////////////////////////////////////////////////
@@ -650,11 +652,13 @@ void main_loop (void)
 	{
 		soft_timer_last_tick=clock_time();
 		blt_soft_timer_process(MAINLOOP_ENTRY);
+		//reset_ble_binding();
 	}
 
 	if(clock_time_exceed(rtc_timer_last_tick,1000*1000))
 	{//
 		rtc_timer_last_tick=clock_time();
+		reset_ble_binding();
 		tuya_rtc_timer_update_handler();
 	}
 

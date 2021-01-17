@@ -55,8 +55,8 @@ typedef unsigned long long u64;
 #define TRUE 	(!FALSE)
 #endif
 
-#define false 	FALSE
-#define true 	TRUE
+//#define false 	FALSE
+//#define true 	TRUE
 
 #endif
 

@@ -4,8 +4,7 @@
 #include "tuya_ble_log.h"
 #define HARD_I2C_ENABLE 0
 
-#define I2C_SCL         GPIO_PB4
-#define I2C_SDA         GPIO_PD2
+
 
 int SHT30_temperature;
 u8 SHT30_humidity;
@@ -310,6 +309,7 @@ int tem_hum_i2c_read(u8* buff)
     i2c_rcv_bytes( SHT30_ADDR | I2C_READ, buff, SHT30_RESPONSE_LEN );
     i2c_stop();
 #endif
+    return 0;
 }
 
 void tem_hum_i2c_soft_reset()

@@ -27,8 +27,8 @@ tuya_ble_sdk/sdk/src \
 tuya_ble_sdk/port \
 tuya_ble_sdk/extern_components/mbedtls \
 tuya_ble_sdk/app/uart_common \
-tuya_ble_sdk/app/SHT3x \
 tuya_ble_app \
+tuya_ble_app/SHT3x \
 drivers/8258 \
 . \
 common \

@@ -2,6 +2,9 @@
 #include "../common/types.h"
 //#include <string.h>
 // SHT30 Temperature and humidity macros
+#define I2C_SCL         GPIO_PB4
+#define I2C_SDA         GPIO_PD2
+
 #define I2C_WRITE                       0
 #define I2C_READ                        1
 

@@ -25,6 +25,9 @@ static const char auth_key_test[] = "pldGjTb0hXRamyCS09fvgRqXUEwEcsC0";
 static const char device_id_test[] = "tuyabcc5c721a3ab";
 static const uint8_t mac_test[6] = {0xC3,0x0E,0x21,0x4D,0x23,0xDC}; //The actual MAC address is : 66:55:44:33:22:11
 
+#define RESET_KEY_PIN  GPIO_PD7
+#define CONNECT_LIGHT_PIN GPIO_PA0
+
 extern void tuya_print_sysInfor();
 
 #define DP_TEMP 1
@@ -34,6 +37,8 @@ extern void tuya_print_sysInfor();
 #define APP_CUSTOM_EVENT_3  3
 #define APP_CUSTOM_EVENT_4  4
 #define APP_CUSTOM_EVENT_5  5
+
+#define LIGHT_BLINK_INTERVAL 300
 
 //static uint8_t dp_data_test[8] = {0x6A,0x05,0x05,0x00,0x00,0x00,0x80,0x02};
 static uint8_t dp_data_array[255+3];
@@ -67,6 +72,21 @@ void custom_data_process(int32_t evt_id,void *data)
     }
 }
 
+static void config_net_KeyAndLight_init(void)
+{
+	gpio_set_input_en(RESET_KEY_PIN,1);
+	gpio_set_output_en(CONNECT_LIGHT_PIN,1);
+}
+
+static void light_blink_start(void)
+{
+	tuya_timer_start(TIMER_LIGHT,LIGHT_BLINK_INTERVAL);
+}
+
+static void light_blink_stop(void)
+{
+	tuya_timer_delete(TIMER_LIGHT);
+}
 
 custom_data_type_t custom_data;
 
@@ -91,20 +111,37 @@ void tuya_ble_get_mac(uint8_t mac[6])
 
 static uint16_t sn = 0;
 static uint32_t time_stamp = 1587795793;
-static uint16_t status = 0;
+extern u8 ty_ble_state;
 static void tuya_cb_handler(tuya_ble_cb_evt_param_t* event)
 {
     int16_t result = 0;
     switch (event->evt)
     {
     case TUYA_BLE_CB_EVT_CONNECTE_STATUS:
-    	status = tuya_ble_connect_status_get();
-        TUYA_APP_LOG_INFO("received tuya ble conncet status update event,current connect status = %d",status);
+    	ty_ble_state = tuya_ble_connect_status_get();
+        TUYA_APP_LOG_INFO("received tuya ble conncet status update event,current connect status = %d",ty_ble_state);
+    	ty_ble_state=tuya_ble_connect_status_get();
+    	//if(ty_ble_state>=UNBONDING_CONN) ty_ble_state=UNBONDING_UNCONN;
+    	if((ty_ble_state==UNBONDING_UNCONN)||(ty_ble_state==UNBONDING_CONN)||(ty_ble_state==UNBONDING_UNAUTH_CONN)||(ty_ble_state==UNKNOW_STATUS))
+    	{
+    		light_blink_start();
+    		//ty_uart_protocol_send(TY_REPORT_BT_STATE,&ty_ble_state,1);
+    	}
+    	else if(ty_ble_state==BONDING_UNCONN)
+    	{
+    		light_blink_stop();
+    		gpio_write(CONNECT_LIGHT_PIN,0);
+    	}
+    	else if(ty_ble_state==BONDING_CONN)
+    	{
+    		light_blink_stop();
+    		gpio_write(CONNECT_LIGHT_PIN,1);
+    	}
         break;
     case TUYA_BLE_CB_EVT_DP_WRITE:
         dp_data_len = event->dp_write_data.data_len;
         memset(dp_data_array,0,sizeof(dp_data_array));
-        memcpy(dp_data_array,event->dp_write_data.p_data,dp_data_len);        
+        memcpy(dp_data_array,event->dp_write_data.p_data,dp_data_len);
         TUYA_APP_LOG_HEXDUMP_DEBUG("received dp write data :",dp_data_array,dp_data_len);
         sn = 0;
         tuya_ble_dp_data_report(dp_data_array,dp_data_len);//1
@@ -186,7 +223,7 @@ static void tuya_cb_handler(tuya_ble_cb_evt_param_t* event)
     case TUYA_BLE_CB_EVT_DP_QUERY:
         TUYA_APP_LOG_INFO("received TUYA_BLE_CB_EVT_DP_QUERY event");
         uart_to_ble_enable=1;
-        tuya_ble_dp_data_report(dp_data_array,dp_data_len);
+        //tuya_ble_dp_data_report(dp_data_array,dp_data_len);
         tuya_timer_start(TIMER_IIC,1000);
         TUYA_APP_LOG_INFO("IIC Timer has started");
         break;
@@ -244,6 +281,7 @@ void tuya_ble_app_init(void)
     elog_set_output_enabled(true);
 
     //tuya_flash_init();
+    config_net_KeyAndLight_init();
     tuya_ota_init();
 
     ty_factory_flag = 1;//允许串口烧录授权 授权码
