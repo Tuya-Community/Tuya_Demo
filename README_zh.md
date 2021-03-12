@@ -4,7 +4,7 @@
 
 ## 简介 
 
-本 Demo 基于涂鸦智能云平台、涂鸦智能APP、IoTOS Embeded WiFi &Ble SDK，使用涂鸦WiFi/WiFi+BLE系列模组快速组建一款温湿度传感器，实现手机远程监测温度和湿度数据。
+本 Demo 基于涂鸦智能云平台、涂鸦智能APP、IoTOS Embeded Ble SDK，使用涂鸦BLE系列模组快速组建一款温湿度传感器，实现手机远程监测温度和湿度数据。
 ## 快速上手
 
 ### 编译与烧录
