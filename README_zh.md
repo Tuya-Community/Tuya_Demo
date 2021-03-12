@@ -14,7 +14,7 @@
 
   ```bash
   $ cd apps
-  $ git clone https://github.com/Weeeendi/tuya-iotos-embeded-demo-wifi-ble-temperature-humidity.git
+  $ git clone https://github.com/Weeeendi/tuya-iotos-embeded-demo-ble-temperature-humidity.git
   ```
 
   ·  [tuya ble sdk](https://docs.tuya.com/zh/iot/device-development/access-mode-link/ble-chip-sdk/tuya-ble-sdk-user-guide?id=K9h5zc4e5djd9)
