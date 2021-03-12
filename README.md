@@ -9,7 +9,7 @@ This Demo is based on Toodle Smart Cloud Platform, Tuya Smart APP, IoTOS Embeded
 ## Quick start
 
 ### Compile & Burn
-+ Download[tuya-iot-temp-humi-sensor-blesdk](https://github.com/Tuya-Community/tuya-iotos-embeded-demo-ble-temperature-humidity) 
++ Download [Tuya IoTOS Embeded Demo BLE Temperature and humidity sensor](https://github.com/Tuya-Community/tuya-iotos-embeded-demo-ble-temperature-humidity) 
 
 + Download the demo to the apps directory of the SDK directory 
 
