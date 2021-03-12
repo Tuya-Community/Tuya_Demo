@@ -8,7 +8,7 @@
 ## 快速上手
 
 ### 编译与烧录
-+ 下载[tuya-iot-temp-humi-sensor-blesdk](https://github.com/Tuya-Community/tuya-iotos-embeded-demo-ble-temperature-humidity) 
++ 下载 [Tuya IoTOS Embeded Demo BLE Temperature and humidity sensor](https://github.com/Tuya-Community/tuya-iotos-embeded-demo-ble-temperature-humidity) 
 
 + 下载Demo至SDK目录的apps目录下 
 
